@@ -1,3 +1,4 @@
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -11,108 +12,138 @@ class Home extends StatefulWidget {
   });
 
   @override
-  State<Home> createState() => HomeState();
+  HomeState createState() => HomeState();
 }
 
 class HomeState extends State<Home> {
-  List<String> imageUrls = [];
-  bool isLoading = true;
-  int urlsIndex = 0;
-  PhotoService photoService = PhotoService();
+  final PhotoService _photoService = PhotoService();
+  List<String> _imageUrls = [];
+  bool _isLoading = true;
+  bool _isLoggedIn = false;
+  bool _isRequesting = false;
+  int _currentIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    fetchImageUrls();
+    _loadImages();
   }
 
-  Future<void> fetchImageUrls() async {
-    final accessToken = await photoService.getAccessToken();
-    final folderId = dotenv.get('folder_id');
-    final urls =
-        await photoService.getImageUrlsFromFolder(folderId, accessToken ?? '');
-
+  Future<void> _loadImages() async {
+    setState(() => _isLoading = true);
+    final token = await _photoService.getAccessToken();
+    final urls = await _photoService.getImageUrlsFromFolder(
+      dotenv.get('folder_id'),
+      token ?? '',
+    );
     setState(() {
-      imageUrls = urls;
-      isLoading = false;
+      urls.shuffle();
+      _imageUrls = urls;
+      _isLoggedIn = urls.isNotEmpty;
+      _isLoading = false;
+      _currentIndex = 0;
     });
-
-    await _requestImage();
   }
 
-  Future<void> _requestImage() async {
-    final url = imageUrls[urlsIndex];
-    photoService.requestImageUrl(url);
-  }
-
-  Future<void> _requestNextImage() async {
-    if (urlsIndex < imageUrls.length) {
-      setState(() {
-        urlsIndex++;
-      });
-
-      final url = imageUrls[urlsIndex];
-      photoService.requestImageUrl(url);
-    }
-  }
-
-  Future<void> _requestPreviousImage() async {
-    if (urlsIndex > 0) {
-      setState(() {
-        urlsIndex--;
-      });
-
-      final url = imageUrls[urlsIndex];
-      photoService.requestImageUrl(url);
+  Future<void> _showImage(int delta) async {
+    final newIndex = (_currentIndex + delta).clamp(0, _imageUrls.length - 1);
+    if (newIndex == _currentIndex) return;
+    setState(() {
+      _currentIndex = newIndex;
+      _isRequesting = true;
+    });
+    try {
+      await _photoService.requestImageUrl(_imageUrls[_currentIndex]);
+    } catch (e) {
+      print('画像の表示に失敗しました');
+    } finally {
+      sleep(const Duration(seconds: 3));
+      setState(() => _isRequesting = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: isLoading
+      body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : ImageContainer(
-              imagePath: 'images/home.jpg',
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
+          : IgnorePointer(
+              ignoring: _isRequesting,
+              child: AnimatedOpacity(
+                opacity: _isRequesting ? 0.5 : 1.0,
+                duration: const Duration(milliseconds: 200),
+                child: Stack(
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      BaseButton(
-                        icon: Icons.power_settings_new_outlined,
-                        onTap: () {
-                          print(1);
-                        },
-                      ),
-                      BaseButton(
-                        icon: Icons.stop_circle_outlined,
-                        onTap: () {
-                          print(2);
-                        },
-                      ),
-                    ],
+                  ImageContainer(
+                    imagePath: 'images/home.jpg',
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            BaseButton(
+                              icon: Icons.power_settings_new_outlined,
+                              onTap: () => _photoService.start(),
+                            ),
+                            BaseButton(
+                              icon: Icons.stop_circle_outlined,
+                              onTap: () => _photoService.stop(),
+                            ),
+                          ],
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            BaseButton(
+                                icon: Icons.arrow_circle_left_outlined,
+                                onTap: () => _showImage(-1)),
+                            BaseButton(
+                              icon: Icons.arrow_circle_right_outlined,
+                              onTap: () => _showImage(1),
+                            ),
+                          ],
+                        ),
+                        const Padding(padding: EdgeInsets.only(bottom: 20)),
+                      ],
+                    ),
                   ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      BaseButton(
-                        icon: Icons.arrow_circle_left_outlined,
-                        onTap: () async {
-                          await _requestPreviousImage();
-                        },
+                  if (!_isLoggedIn)
+                    Positioned(
+                      top: 24,
+                      left: 24,
+                      right: 24,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 12,
+                          horizontal: 16,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'ログインしてください',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            IconButton(
+                              icon:
+                                  const Icon(Icons.login, color: Colors.white),
+                              onPressed: _loadImages,
+                            ),
+                          ],
+                        ),
                       ),
-                      BaseButton(
-                        icon: Icons.arrow_circle_right_outlined,
-                        onTap: () async {
-                          await _requestNextImage();
-                        },
-                      ),
-                    ],
-                  )
+                    ),
                 ],
-              ),
+              ),)
             ),
     );
   }

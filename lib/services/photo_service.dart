@@ -26,31 +26,55 @@ class PhotoService {
       'q': query,
       'fields': 'files(id, name, webContentLink)',
     });
+    try {
+      final response = await http.get(uri, headers: {
+        'Authorization': 'Bearer $accessToken',
+      });
 
-    final response = await http.get(uri, headers: {
-      'Authorization': 'Bearer $accessToken',
-    });
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final files = List<Map<String, dynamic>>.from(data['files']);
 
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      final files = List<Map<String, dynamic>>.from(data['files']);
+        List<String> urls = [];
 
-      List<String> urls = [];
+        for (var file in files) {
+          final fileId = file['id'];
+          if (fileId == null) continue;
 
-      for (var file in files) {
-        final fileId = file['id'];
-        if (fileId == null) continue;
+          await _setFilePublic(fileId, accessToken);
 
-        await _setFilePublic(fileId, accessToken);
+          final url = 'https://drive.google.com/uc?export=view&id=$fileId';
+          urls.add(url);
+        }
 
-        final url = 'https://drive.google.com/uc?export=view&id=$fileId';
-        urls.add(url);
+        return urls;
+      } else {
+        return [];
       }
-
-      return urls;
-    } else {
-      print('Error fetching image files: ${response.body}');
+    } catch (e) {
       return [];
+    }
+  }
+
+  Future<void> start() async {
+    String apiUrl = 'http://${dotenv.get('ip_address')}/start';
+
+    try {
+      await http.post(Uri.parse(apiUrl));
+      print('start app!');
+    } catch (e) {
+      print("Error: $e");
+    }
+  }
+
+  Future<void> stop() async {
+    String apiUrl = 'http://${dotenv.get('ip_address')}/stop';
+
+    try {
+      await http.post(Uri.parse(apiUrl));
+      print('stop app!');
+    } catch (e) {
+      print("Error: $e");
     }
   }
 
@@ -93,7 +117,7 @@ class PhotoService {
       headers: {
         'Authorization': 'Bearer $accessToken',
         'Content-Type': 'application/json',
-      },            
+      },
       body: permissionPayload,
     );
 
@@ -102,4 +126,4 @@ class PhotoService {
           'Failed to set permission: ${response.statusCode} - ${response.body}');
     }
   }
-}   
+}
